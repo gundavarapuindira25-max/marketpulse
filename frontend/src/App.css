@@ -346,6 +346,11 @@ body {
   margin-bottom: 2px;
 }
 
+.book-header span:nth-child(2),
+.book-header span:nth-child(3) {
+  text-align: right;
+}
+
 .book-row {
   position: relative;
   display: grid;
