@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import OrderBook from "./components/OrderBook";
 import TickerBar from "./components/TickerBar";
+import MarketNarrator from "./components/MarketNarrator";
 import PriceChart from "./components/PriceChart";
 import TradeTape from "./components/TradeTape";
 import DepthChart from "./components/DepthChart";
@@ -24,6 +25,7 @@ export default function App() {
   const [trades, setTrades] = useState([]);       // recent trades for tape
   const [spreads, setSpreads] = useState([]);     // spread history
   const [candles, setCandles] = useState([]);     // 1-min OHLCV candles
+  const [narration, setNarration] = useState(null); // { text, ts } — latest LLM market summary
   const [sessionStats, setSessionStats] = useState({ tradeCount: 0, totalVolume: 0, minPrice: null, maxPrice: null, startTime: Date.now() });
   const [latency, setLatency] = useState(null);
   const [connected, setConnected] = useState(false);
@@ -100,6 +102,8 @@ export default function App() {
               maxPrice: prev.maxPrice === null ? price : Math.max(prev.maxPrice, price),
             }));
           }
+        } else if (msg.type === "narration") {
+          setNarration({ text: msg.text, ts: Date.now() });
         } else if (msg.type === "candle") {
           setCandles((prev) => {
             if (!prev.length || prev[prev.length - 1].ts !== msg.candle.ts) {
@@ -145,6 +149,7 @@ export default function App() {
       </header>
 
       <TickerBar ticker={ticker} />
+      <MarketNarrator narration={narration} />
 
       {page === "terminal" && (
         <main className="main-grid">

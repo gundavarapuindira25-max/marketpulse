@@ -11,12 +11,14 @@ import time
 from typing import Optional
 
 import certifi
+import ollama
 import websockets
 from dotenv import load_dotenv
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 import storage
+from narrator import generate_narration
 
 load_dotenv()
 
@@ -36,6 +38,10 @@ app.add_middleware(
 
 PRODUCT_ID = os.getenv("PRODUCT_ID", "BTC-USD")
 COINBASE_WS_URL = "wss://advanced-trade-ws.coinbase.com"
+NARRATION_INTERVAL_SECONDS = int(os.getenv("NARRATION_INTERVAL_SECONDS", "45"))
+OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+
+ollama_client = ollama.AsyncClient(host=OLLAMA_HOST)
 
 class OrderBook:
     def __init__(self):
@@ -235,12 +241,35 @@ async def coinbase_feed():
 
 
 # ---------------------------------------------------------------------------
+# LLM market narrator (runs on a timer, independent of the tick rate)
+# ---------------------------------------------------------------------------
+
+async def narrator_loop():
+    while True:
+        await asyncio.sleep(NARRATION_INTERVAL_SECONDS)
+
+        if order_book.last_price is None:
+            continue  # no data yet, nothing to narrate
+
+        recent_candles = storage.get_recent_candles(PRODUCT_ID, limit=10)
+        text = await generate_narration(ollama_client, order_book.snapshot(), recent_candles, PRODUCT_ID)
+        if text:
+            await manager.broadcast({
+                "type": "narration",
+                "product": PRODUCT_ID,
+                "text": text,
+                "server_ts": time.time(),
+            })
+
+
+# ---------------------------------------------------------------------------
 # FastAPI lifecycle + routes
 # ---------------------------------------------------------------------------
 
 @app.on_event("startup")
 async def startup():
     asyncio.create_task(coinbase_feed())
+    asyncio.create_task(narrator_loop())
 
 
 @app.get("/health")
