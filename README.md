@@ -19,8 +19,8 @@ Built to demonstrate low-latency market data architecture: a Python backend cons
 - End-to-end latency display (exchange → backend → browser)
 - Auto-reconnect on connection drop
 - Configurable trading pair via environment variable
-- **AI market narrator** — a local LLM (Ollama) turns the live order book + recent candles into a short plain-English summary every 45s, grounded strictly in the real numbers on screen (no invented prices, no trading advice). Runs fully offline, no API key or cost.
-- **Deterministic hallucination guard** — every number the narrator states is cross-checked against the actual order book/candle data it was given; a narration containing a price or level that doesn't match the real data is rejected before it ever reaches the browser, not just discouraged by the prompt.
+- AI market narrator: a local LLM (Ollama) turns the live order book + recent candles into a short plain-English summary every 45s, grounded strictly in the real numbers on screen (no invented prices, no trading advice). Runs fully offline, no API key or cost.
+- Deterministic hallucination guard: every number the narrator states is cross-checked against the actual order book/candle data it was given; a narration containing a price or level that doesn't match the real data is rejected before it ever reaches the browser, not just discouraged by the prompt.
 
 ## Architecture
 
@@ -51,13 +51,13 @@ Coinbase Advanced Trade WS          Ollama (local LLM)
 
 `validation.py` confirms every number the narrator states is real: each figure in the generated narration is extracted and cross-checked against the exact order book/candle snapshot the model was shown, with a small tolerance to allow for rounding. A narration where every number checks out gets broadcast; one with a mismatch is rejected for that cycle and logged with the offending value(s).
 
-The check excludes numbers in hyphenated units like "1-minute" or "24-hour" so everyday phrasing isn't mistaken for a market-data claim — verified across repeated test batches with zero false positives.
+The check excludes numbers in hyphenated units like "1-minute" or "24-hour" so everyday phrasing isn't mistaken for a market-data claim, verified across repeated test batches with zero false positives.
 
 ## Quick Start
 
 ### LLM narrator (Ollama)
 
-The market narrator runs against a local model — no API key needed. Install and start it before running the backend:
+The market narrator runs against a local model with no API key needed. Install and start it before running the backend:
 
 ```bash
 brew install ollama
