@@ -20,6 +20,7 @@ Built to demonstrate low-latency market data architecture: a Python backend cons
 - Auto-reconnect on connection drop
 - Configurable trading pair via environment variable
 - **AI market narrator** — a local LLM (Ollama) turns the live order book + recent candles into a short plain-English summary every 45s, grounded strictly in the real numbers on screen (no invented prices, no trading advice). Runs fully offline, no API key or cost.
+- **Deterministic hallucination guard** — every number the narrator states is cross-checked against the actual order book/candle data it was given; a narration containing a price or level that doesn't match the real data is rejected before it ever reaches the browser, not just discouraged by the prompt.
 
 ## Architecture
 
@@ -32,6 +33,7 @@ Coinbase Advanced Trade WS          Ollama (local LLM)
   ├── CandleAggregator — buckets ticks into 1-min OHLCV candles
   ├── storage.py — persists closed candles to SQLite
   ├── narrator.py — grounded market summary via local LLM
+  ├── validation.py — rejects narrations whose numbers don't match real data
   ├── ConnectionManager — fan-out to N browser clients
   ├── /ws WebSocket endpoint
   └── /candles REST endpoint — recent candle history
@@ -44,6 +46,12 @@ Coinbase Advanced Trade WS          Ollama (local LLM)
   ├── CandleChart — 1-min OHLCV candlestick chart
   └── OrderBook — depth-bar visualization
 ```
+
+## Hallucination guard
+
+The narrator's system prompt says "only use the numbers you're given" — but a prompt instruction isn't enforcement. `validation.py` backs it with an actual check: every number the model's narration states is extracted and compared against the exact order book/candle snapshot it was shown (same tolerance-based match used for rounding). If any number doesn't match, the narration is rejected and that cycle is skipped rather than broadcast — logged with the offending value(s) for debugging.
+
+This is a heuristic, not a proof — it can't tell *why* a number appears, so a genuinely unrelated small number in a sentence could in principle be false-flagged. In testing this actually happened once (`"1-minute candle"` had its `1` extracted as a bare number) and was fixed by excluding hyphenated units like "1-minute"/"24-hour"; a batch of 10 fresh generations afterward had zero false positives.
 
 ## Quick Start
 

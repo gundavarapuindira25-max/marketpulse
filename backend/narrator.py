@@ -18,6 +18,8 @@ from typing import Optional
 
 import ollama
 
+from validation import check_grounded
+
 logger = logging.getLogger("narrator")
 
 MODEL = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
@@ -39,10 +41,12 @@ Rules:
 - Output only the paragraph itself — no preamble, no markdown, no quotes."""
 
 
-def _build_payload(order_book: dict, candles: list[dict], product_id: str) -> str:
-    """Compact JSON snapshot — top few book levels + recent candles only,
-    to keep the prompt small for a call that repeats every cycle."""
-    payload = {
+def _build_context(order_book: dict, candles: list[dict], product_id: str) -> dict:
+    """Compact snapshot — top few book levels + recent candles only, to keep
+    the prompt small for a call that repeats every cycle. This is also what
+    the grounding check validates against, so it must contain exactly what
+    the model was actually shown — nothing more, nothing less."""
+    return {
         "product": product_id,
         "last_price": order_book.get("last_price"),
         "last_trade_side": order_book.get("last_trade_side"),
@@ -50,11 +54,10 @@ def _build_payload(order_book: dict, candles: list[dict], product_id: str) -> st
         "best_ask": order_book.get("best_ask"),
         "spread": order_book.get("spread"),
         "mid_price": order_book.get("mid_price"),
-        "top_bids": order_book.get("bids", [])[:5],
-        "top_asks": order_book.get("asks", [])[:5],
+        "bids": order_book.get("bids", [])[:5],
+        "asks": order_book.get("asks", [])[:5],
         "recent_candles": candles[-10:],
     }
-    return json.dumps(payload)
 
 
 async def generate_narration(
@@ -63,15 +66,16 @@ async def generate_narration(
     candles: list[dict],
     product_id: str,
 ) -> Optional[str]:
-    """Returns a short narration string, or None if generation failed —
-    callers should just skip broadcasting that cycle on None rather than
-    treating it as fatal (e.g. Ollama not running yet)."""
+    """Returns a short narration string, or None if generation failed, was
+    unreachable, or failed the grounding check — callers should just skip
+    broadcasting that cycle on None rather than treating it as fatal."""
+    context = _build_context(order_book, candles, product_id)
     try:
         response = await client.chat(
             model=MODEL,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": _build_payload(order_book, candles, product_id)},
+                {"role": "user", "content": json.dumps(context)},
             ],
             options={"temperature": 0.3, "num_predict": 150},
         )
@@ -88,4 +92,13 @@ async def generate_narration(
         return None
 
     text = response.message.content
-    return text.strip() if text else None
+    if not text:
+        return None
+    text = text.strip()
+
+    grounded, offending = check_grounded(text, context, context["recent_candles"])
+    if not grounded:
+        logger.warning("[narrator] rejected ungrounded narration (numbers not in source data: %s): %r", offending, text)
+        return None
+
+    return text
