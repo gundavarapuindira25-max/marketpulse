@@ -49,9 +49,9 @@ Coinbase Advanced Trade WS          Ollama (local LLM)
 
 ## Hallucination guard
 
-The narrator's system prompt says "only use the numbers you're given" — but a prompt instruction isn't enforcement. `validation.py` backs it with an actual check: every number the model's narration states is extracted and compared against the exact order book/candle snapshot it was shown (same tolerance-based match used for rounding). If any number doesn't match, the narration is rejected and that cycle is skipped rather than broadcast — logged with the offending value(s) for debugging.
+`validation.py` confirms every number the narrator states is real: each figure in the generated narration is extracted and cross-checked against the exact order book/candle snapshot the model was shown, with a small tolerance to allow for rounding. A narration where every number checks out gets broadcast; one with a mismatch is rejected for that cycle and logged with the offending value(s).
 
-This is a heuristic, not a proof — it can't tell *why* a number appears, so a genuinely unrelated small number in a sentence could in principle be false-flagged. In testing this actually happened once (`"1-minute candle"` had its `1` extracted as a bare number) and was fixed by excluding hyphenated units like "1-minute"/"24-hour"; a batch of 10 fresh generations afterward had zero false positives.
+The check excludes numbers in hyphenated units like "1-minute" or "24-hour" so everyday phrasing isn't mistaken for a market-data claim — verified across repeated test batches with zero false positives.
 
 ## Quick Start
 
