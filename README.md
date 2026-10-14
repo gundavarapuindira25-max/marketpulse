@@ -65,10 +65,11 @@ The check excludes numbers in hyphenated units like "1-minute" or "24-hour" so e
 
 Persistence runs on PostgreSQL (local, via Docker), not SQLite: a real relational schema instead of a single candles table, with schema changes tracked through Alembic migrations rather than created ad hoc on boot.
 
-Schema (`backend/models.py`):
+Schema (`backend/models.py`) — one parent, four children, each a real foreign key (`product_id`) back to `products`, not just a shared string:
 
 | Table | What it holds |
 |---|---|
+| `products` | One row per trading pair streamed (e.g. `BTC-USD`). Parent of the four tables below. |
 | `candles` | Closed 1-minute OHLCV bars |
 | `order_book_snapshots` | Top-of-book state (best bid/ask, spread, mid-price) every 10s, with the top levels stored as JSONB |
 | `trades` | Every ticker trade event: price, side, timestamp |
@@ -97,6 +98,9 @@ SELECT max(high) - min(low) AS range FROM candles WHERE ts > extract(epoch from 
 
 -- Spread over time
 SELECT ts, spread FROM order_book_snapshots ORDER BY ts DESC LIMIT 20;
+
+-- Trade count per product (the one-to-many relationship in action)
+SELECT p.symbol, count(*) FROM trades t JOIN products p ON p.id = t.product_id GROUP BY p.symbol;
 ```
 
 Schema changes going forward go through a new Alembic revision (`alembic revision --autogenerate -m "..."`, reviewed, then `alembic upgrade head`) rather than editing tables by hand.
