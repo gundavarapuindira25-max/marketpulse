@@ -13,7 +13,7 @@ Built to demonstrate low-latency market data architecture: a Python backend cons
 - Live bid/ask order book (top 20 levels) with depth visualization bars
 - Real-time tick price chart with SMA-20 and VWAP overlays
 - 1-minute OHLCV candlestick chart, persisted to Postgres so history survives a restart
-- **Postgres-backed persistence** — candles, periodic order book snapshots, every trade tick, and every narrator attempt (grounded or rejected) all land in a real relational schema, managed through Alembic migrations and queryable directly with SQL
+- Postgres-backed persistence: candles, periodic order book snapshots, every trade tick, and every narrator attempt (grounded or rejected) all land in a real relational schema, managed through Alembic migrations and queryable directly with SQL
 - Trade tape, spread history, and order book depth chart
 - 24h high, low, volume ticker strip
 - Live spread and mid-price calculation
@@ -63,18 +63,18 @@ The check excludes numbers in hyphenated units like "1-minute" or "24-hour" so e
 
 ## Database
 
-Persistence runs on PostgreSQL (local, via Docker), not SQLite — a real relational schema instead of a single candles table, with schema changes tracked through Alembic migrations rather than created ad hoc on boot.
+Persistence runs on PostgreSQL (local, via Docker), not SQLite: a real relational schema instead of a single candles table, with schema changes tracked through Alembic migrations rather than created ad hoc on boot.
 
-**Schema** (`backend/models.py`):
+Schema (`backend/models.py`):
 
 | Table | What it holds |
 |---|---|
 | `candles` | Closed 1-minute OHLCV bars |
 | `order_book_snapshots` | Top-of-book state (best bid/ask, spread, mid-price) every 10s, with the top levels stored as JSONB |
-| `trades` | Every ticker trade event — price, side, timestamp |
-| `narrations` | Every narrator attempt, grounded or rejected, with the offending numbers recorded for rejected ones — so the hallucination guard's behavior over time is itself queryable, not just visible in logs |
+| `trades` | Every ticker trade event: price, side, timestamp |
+| `narrations` | Every narrator attempt, grounded or rejected, with the offending numbers recorded for rejected ones, so the hallucination guard's behavior over time is itself queryable, not just visible in logs |
 
-**Running it:**
+Running it:
 
 ```bash
 docker compose up -d                 # starts Postgres on localhost:5432
@@ -82,7 +82,7 @@ cd backend
 alembic upgrade head                 # applies the schema
 ```
 
-**Querying it directly:**
+Querying it directly:
 
 ```bash
 docker exec -it marketpulse-postgres psql -U marketpulse -d marketpulse
