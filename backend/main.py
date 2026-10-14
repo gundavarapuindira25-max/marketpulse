@@ -39,6 +39,7 @@ app.add_middleware(
 PRODUCT_ID = os.getenv("PRODUCT_ID", "BTC-USD")
 COINBASE_WS_URL = "wss://advanced-trade-ws.coinbase.com"
 NARRATION_INTERVAL_SECONDS = int(os.getenv("NARRATION_INTERVAL_SECONDS", "45"))
+SNAPSHOT_INTERVAL_SECONDS = int(os.getenv("SNAPSHOT_INTERVAL_SECONDS", "10"))
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 
 ollama_client = ollama.AsyncClient(host=OLLAMA_HOST)
@@ -224,10 +225,15 @@ async def coinbase_feed():
                                 }
                                 await manager.broadcast(tick)
 
+                                await storage.save_trade(
+                                    PRODUCT_ID, tick["server_ts"], order_book.last_price,
+                                    order_book.last_trade_side, None,
+                                )
+
                                 volume_24h = float(volume_24h_raw) if volume_24h_raw else None
                                 closed_candle = candle_agg.update(order_book.last_price, volume_24h)
                                 if closed_candle:
-                                    storage.save_candle(PRODUCT_ID, closed_candle)
+                                    await storage.save_candle(PRODUCT_ID, closed_candle)
                                 await manager.broadcast({
                                     "type": "candle",
                                     "product": PRODUCT_ID,
@@ -241,6 +247,19 @@ async def coinbase_feed():
 
 
 # ---------------------------------------------------------------------------
+# Periodic order book persistence (independent of the broadcast rate, which
+# is every tick — far too frequent to write to Postgres)
+# ---------------------------------------------------------------------------
+
+async def snapshot_loop():
+    while True:
+        await asyncio.sleep(SNAPSHOT_INTERVAL_SECONDS)
+        if order_book.last_price is None:
+            continue
+        await storage.save_order_book_snapshot(PRODUCT_ID, order_book.snapshot())
+
+
+# ---------------------------------------------------------------------------
 # LLM market narrator (runs on a timer, independent of the tick rate)
 # ---------------------------------------------------------------------------
 
@@ -251,13 +270,20 @@ async def narrator_loop():
         if order_book.last_price is None:
             continue  # no data yet, nothing to narrate
 
-        recent_candles = storage.get_recent_candles(PRODUCT_ID, limit=10)
-        text = await generate_narration(ollama_client, order_book.snapshot(), recent_candles, PRODUCT_ID)
-        if text:
+        recent_candles = await storage.get_recent_candles(PRODUCT_ID, limit=10)
+        result = await generate_narration(ollama_client, order_book.snapshot(), recent_candles, PRODUCT_ID)
+
+        # Log every attempt — grounded or rejected — so the guard's behavior
+        # over time is itself queryable, not just visible in logs.
+        await storage.save_narration(
+            PRODUCT_ID, time.time(), result["text"], result["grounded"], result["offending"],
+        )
+
+        if result["grounded"] and result["text"]:
             await manager.broadcast({
                 "type": "narration",
                 "product": PRODUCT_ID,
-                "text": text,
+                "text": result["text"],
                 "server_ts": time.time(),
             })
 
@@ -270,6 +296,7 @@ async def narrator_loop():
 async def startup():
     asyncio.create_task(coinbase_feed())
     asyncio.create_task(narrator_loop())
+    asyncio.create_task(snapshot_loop())
 
 
 @app.get("/health")
@@ -278,8 +305,8 @@ def health():
 
 
 @app.get("/candles")
-def get_candles(limit: int = 200):
-    return {"product": PRODUCT_ID, "candles": storage.get_recent_candles(PRODUCT_ID, limit)}
+async def get_candles(limit: int = 200):
+    return {"product": PRODUCT_ID, "candles": await storage.get_recent_candles(PRODUCT_ID, limit)}
 
 
 @app.websocket("/ws")

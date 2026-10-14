@@ -14,7 +14,6 @@ per-call cost. Requires `ollama serve` running locally with MODEL pulled
 import json
 import logging
 import os
-from typing import Optional
 
 import ollama
 
@@ -65,10 +64,12 @@ async def generate_narration(
     order_book: dict,
     candles: list[dict],
     product_id: str,
-) -> Optional[str]:
-    """Returns a short narration string, or None if generation failed, was
-    unreachable, or failed the grounding check — callers should just skip
-    broadcasting that cycle on None rather than treating it as fatal."""
+) -> dict:
+    """Returns {"text": str|None, "grounded": bool, "offending": list}.
+
+    text is only non-None when grounded is True — callers should broadcast
+    only in that case, but every attempt (including rejected/failed ones) is
+    returned so it can still be logged to the narrations table."""
     context = _build_context(order_book, candles, product_id)
     try:
         response = await client.chat(
@@ -82,23 +83,23 @@ async def generate_narration(
     except ollama.ResponseError as e:
         # e.g. model not pulled yet
         logger.warning("[narrator] Ollama response error (%s): %s", e.status_code, e.error)
-        return None
+        return {"text": None, "grounded": False, "offending": None}
     except ollama.RequestError as e:
         logger.warning("[narrator] Ollama request error: %s", e.error)
-        return None
+        return {"text": None, "grounded": False, "offending": None}
     except Exception as e:
         # covers connection failures when the Ollama server isn't running
         logger.warning("[narrator] Ollama unreachable: %s", e)
-        return None
+        return {"text": None, "grounded": False, "offending": None}
 
     text = response.message.content
     if not text:
-        return None
+        return {"text": None, "grounded": False, "offending": None}
     text = text.strip()
 
     grounded, offending = check_grounded(text, context, context["recent_candles"])
     if not grounded:
         logger.warning("[narrator] rejected ungrounded narration (numbers not in source data: %s): %r", offending, text)
-        return None
+        return {"text": text, "grounded": False, "offending": offending}
 
-    return text
+    return {"text": text, "grounded": True, "offending": []}
